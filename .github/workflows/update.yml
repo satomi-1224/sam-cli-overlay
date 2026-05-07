@@ -1,0 +1,57 @@
+name: Update aws-sam-cli
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check latest version on PyPI
+        id: pypi
+        run: |
+          LATEST=$(curl -fsSL https://pypi.org/pypi/aws-sam-cli/json | jq -r '.info.version')
+          CURRENT=$(jq -r '.version' version.json)
+          echo "latest=${LATEST}" >> "$GITHUB_OUTPUT"
+          echo "current=${CURRENT}" >> "$GITHUB_OUTPUT"
+          echo "latest=${LATEST}, current=${CURRENT}"
+
+      - name: Update version.json
+        if: steps.pypi.outputs.latest != steps.pypi.outputs.current
+        run: |
+          VERSION="${{ steps.pypi.outputs.latest }}"
+          URL=$(curl -fsSL "https://pypi.org/pypi/aws-sam-cli/${VERSION}/json" \
+            | jq -r '.urls[] | select(.filename | endswith(".tar.gz")) | .url')
+          HASH=$(python3 - <<EOF
+          import urllib.request, hashlib, base64, sys
+          url = "${URL}"
+          data = urllib.request.urlopen(url).read()
+          h = hashlib.sha256(data).digest()
+          print("sha256-" + base64.b64encode(h).decode())
+          EOF
+          )
+          jq -n --arg v "$VERSION" --arg h "$HASH" \
+            '{"version": $v, "hash": $h}' > version.json
+
+      - uses: DeterminateSystems/nix-installer-action@v17
+        if: steps.pypi.outputs.latest != steps.pypi.outputs.current
+
+      - name: Evaluate flake
+        if: steps.pypi.outputs.latest != steps.pypi.outputs.current
+        run: nix eval .#packages.x86_64-linux.aws-sam-cli --no-write-lock-file
+
+      - name: Commit and push
+        if: steps.pypi.outputs.latest != steps.pypi.outputs.current
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add version.json
+          git commit -m "chore: update aws-sam-cli to ${{ steps.pypi.outputs.latest }}"
+          git push
