@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   update:
@@ -30,7 +31,7 @@ jobs:
           URL=$(curl -fsSL "https://pypi.org/pypi/aws-sam-cli/${VERSION}/json" \
             | jq -r '.urls[] | select(.filename | endswith(".tar.gz")) | .url')
           HASH=$(python3 - <<EOF
-          import urllib.request, hashlib, base64, sys
+          import urllib.request, hashlib, base64
           url = "${URL}"
           data = urllib.request.urlopen(url).read()
           h = hashlib.sha256(data).digest()
@@ -40,18 +41,22 @@ jobs:
           jq -n --arg v "$VERSION" --arg h "$HASH" \
             '{"version": $v, "hash": $h}' > version.json
 
-      - uses: DeterminateSystems/nix-installer-action@v17
+      - uses: peter-evans/create-pull-request@v7
+        id: create-pr
         if: steps.pypi.outputs.latest != steps.pypi.outputs.current
+        with:
+          commit-message: "chore: update aws-sam-cli to ${{ steps.pypi.outputs.latest }}"
+          title: "chore: update aws-sam-cli to ${{ steps.pypi.outputs.latest }}"
+          body: |
+            Automated update from PyPI.
 
-      - name: Evaluate flake
-        if: steps.pypi.outputs.latest != steps.pypi.outputs.current
-        run: nix eval .#packages.x86_64-linux.aws-sam-cli --no-write-lock-file
+            - ${{ steps.pypi.outputs.current }} → ${{ steps.pypi.outputs.latest }}
+            - [Release notes](https://github.com/aws/aws-sam-cli/releases/tag/v${{ steps.pypi.outputs.latest }})
+          branch: auto-update/aws-sam-cli
+          delete-branch: true
 
-      - name: Commit and push
-        if: steps.pypi.outputs.latest != steps.pypi.outputs.current
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add version.json
-          git commit -m "chore: update aws-sam-cli to ${{ steps.pypi.outputs.latest }}"
-          git push
+      - name: Enable auto-merge
+        if: steps.create-pr.outputs.pull-request-number
+        run: gh pr merge --auto --squash "${{ steps.create-pr.outputs.pull-request-number }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
