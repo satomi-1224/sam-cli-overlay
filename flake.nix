@@ -16,13 +16,24 @@
       versionData = builtins.fromJSON (builtins.readFile ./version.json);
 
       overlay = final: prev: {
-        aws-sam-cli = prev.aws-sam-cli.overrideAttrs (_: {
+        aws-sam-cli = prev.aws-sam-cli.overrideAttrs (old: {
           version = versionData.version;
           src = prev.fetchPypi {
             pname = "aws_sam_cli";
             version = versionData.version;
             hash = versionData.hash;
           };
+          patches = [ ];
+          postPatch = builtins.replaceStrings
+            [ "requirements/base.txt" ]
+            [ "pyproject.toml" ]
+            old.postPatch;
+          pythonRelaxDeps = old.pythonRelaxDeps ++ [ "jmespath" ];
+          propagatedBuildInputs = old.propagatedBuildInputs ++ [
+            prev.python3Packages.python-dotenv
+          ];
+          doCheck = false;
+          doInstallCheck = false;
         });
       };
     in

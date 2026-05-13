@@ -20,5 +20,5 @@ jobs:
       - name: Flake check
         run: nix flake check --no-build
 
-      - name: Evaluate package
-        run: nix eval .#packages.x86_64-linux.aws-sam-cli
+      - name: Build package
+        run: nix build .#packages.x86_64-linux.aws-sam-cli
